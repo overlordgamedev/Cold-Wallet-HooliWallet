@@ -1,0 +1,5 @@
+{
+    "depth": 25,
+    "wallets_dir": "wallets",
+    "node_file": "node_settings.txt"
+}

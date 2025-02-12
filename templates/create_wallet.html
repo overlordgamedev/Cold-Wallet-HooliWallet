@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Создание кошелька</title>
+</head>
+<body>
+    <h1>Выберите способ создания:</h1>
+    <form method="post" action="/generate"><!--Отправка POST запроса на маршрут /generate-->
+        <button type="submit">Сгенерировать мнемонику</button>
+    </form>
+    <form action="/enter_mnemonic"> <!--Вызов маршрута /enter_mnemonic-->
+        <button type="submit">Использовать свою мнемонику</button>
+    </form>
+</body>
+</html>

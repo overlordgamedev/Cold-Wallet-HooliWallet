@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Авторизация</title>
+</head>
+<body>
+    <h1>Импорт кошелька</h1>
+    <form method="post" action="/login">
+        <label for="wallet_file">Выберите файл кошелька:</label>
+        <select name="wallet_file" id="wallet_file" required>
+            {% for file in wallet_files %}
+            <option value="{{ file }}">{{ file }}</option>
+            {% endfor %}
+        </select><br>
+        <input type="password" name="password" placeholder="Пароль" required><br>
+        <button type="submit">Открыть кошелек</button>
+    </form>
+</body>
+</html>

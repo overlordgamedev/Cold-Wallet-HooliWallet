@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Результат транзакции</title>
+</head>
+<body>
+    <h1>Результат выполнения транзакции</h1>
+
+    {% if txid %}
+        <p>Транзакция успешно отправлена!</p>
+        <p>TXID: <strong>{{ txid }}</strong></p>
+    {% else %}
+        <p>Ошибка при выполнении транзакции: {{ error }}</p>
+    {% endif %}
+</body>
+</html>
