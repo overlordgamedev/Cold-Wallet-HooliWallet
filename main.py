@@ -1,15 +1,12 @@
 import json
 import os
+import string
 import base58
 import hashlib
-import base64
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 from bip_utils import (
     Bip39MnemonicGenerator, Bip39SeedGenerator, Bip44, Bip44Coins, Bip44Changes
 )
-from Cryptodome.Cipher import AES
-from Cryptodome.Random import get_random_bytes
-from Cryptodome.Protocol.KDF import scrypt
 import requests
 
 # Конфигурация
@@ -118,36 +115,100 @@ class NodeManager:
 class CryptoUtils:
     @staticmethod
     def encrypt(data: str, password: str) -> str:
-        """Шифрует данные с использованием пароля"""
-        # Для шифрования используется AES GCM, точно так же как и в большинстве холодных кошельков
-        salt = get_random_bytes(16)
-        key = scrypt(password.encode(), salt, key_len=32, N=2 ** 20, r=8, p=1)
-        nonce = get_random_bytes(12)
-
-        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-        ciphertext, tag = cipher.encrypt_and_digest(data.encode())
-
-        return base64.b64encode(salt + nonce + ciphertext + tag).decode('utf-8')
+        if len(password) != 4 or not all(c.upper() in string.ascii_uppercase for c in password):
+            raise ValueError("Пароль должен состоять из 4 букв A-Z")
+        encrypted = CryptoUtils.enigma_cipher(data, password.upper())
+        return encrypted
 
     @staticmethod
     def decrypt(encrypted_data: str, password: str) -> str:
-        """Дешифрует данные с использованием пароля"""
-        # В функцию передаются шифрованные данные в виде строки и ключ для расшифровки
-        # Используемое шифрование это AES GCM
-        encrypted_bytes = base64.b64decode(encrypted_data)
+        if len(password) != 4 or not all(c.upper() in string.ascii_uppercase for c in password):
+            raise ValueError("Пароль должен состоять из 4 букв A-Z")
+        decrypted = CryptoUtils.enigma_cipher(encrypted_data, password.upper())
+        return decrypted
 
-        salt = encrypted_bytes[:16]
-        nonce = encrypted_bytes[16:28]
-        ciphertext = encrypted_bytes[28:-16]
-        tag = encrypted_bytes[-16:]
 
-        key = scrypt(password.encode(), salt, key_len=32, N=2 ** 20, r=8, p=1)
-        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+    @staticmethod
+    def enigma_cipher(message: str, password: str) -> str:
+        # Определение роторов и их начальных позиций
+        # rotors — это список, где каждый элемент представляет собой кортеж (проводка, метка переключения).
+        # Проводка — это строка, в которой буквы перемешаны, показывая, как ротор заменяет буквы.
+        # Метка переключения — это буква, при которой ротор переключает следующий.
+        rotors = [
+            ("EKMFLGDQVZNTOWYHXUSPAIBRCJ", "K"),
+            ("AJDKSIRUXBLHWTMCQGZNPYFVOE", "J"),
+            ("BDFHJLCPRTXVZNYEIWGAKMUSQO", "O"),
+            ("ESOVPZJAYQUIRHXLNFTGKDCMWB", "D")
+        ]
+        # Рефлекторная схема — это как зеркала для сигналов, они меняют буквы по аналогии с проводкой
+        reflector = "YRUHQSLDPXNGOKMIEBFZCWVJAT"
 
-        try:
-            return cipher.decrypt_and_verify(ciphertext, tag).decode('utf-8')
-        except ValueError:
-            raise ValueError("Неверный пароль или поврежденные данные")
+        # Перевод пароля в верхний регистр
+        password = password.upper()
+
+        # Преобразует строку в список. Было QWER, стало ['Q', 'W', 'E', 'R'].
+        # Это нужно, чтобы обращаться к каждой букве отдельно.
+        # :4 означает ограничение 4 символами
+        positions = list(password[:4])
+
+        result = []  # Пустой объект для хранения результата
+        # Создает копию позиций роторов. Это нужно, чтобы не менять оригинальный пароль т.к во время шифрования позиции будут меняться
+        current_positions = positions.copy()
+
+        # Цикл означает что будет браться по одному символу из сообщения для зашифровки
+        for original_char in message:
+            # Пропускаем не-буквы (Все знаки кроме букв не шифруются)
+            if not original_char.isalpha():
+                result.append(original_char)
+                continue
+
+            # Если символ в верхнем регистре true, если в нижнем false
+            is_upper = original_char.isupper()
+            # Перевод буквы в верхний регистр
+            char = original_char.upper()
+
+            # Логика вращения роторов
+            rotate_next = True  # Флаг для переключения следующего ротора
+            for i in range(len(current_positions)):
+                if rotate_next:
+                    # Поворачиваем ротор на одну позицию (Берется текущая позиция ротора и к ней добавляется + 1)
+                    new_pos = (string.ascii_uppercase.index(current_positions[i]) + 1) % 26
+                    # Обновляем позицию ротора в current_positions
+                    current_positions[i] = string.ascii_uppercase[new_pos]
+                    # Проверяем, нужно ли переключить следующий ротор
+                    # Если текущая позиция ротора совпадает с меткой переключения (notch),
+                    # то флаг rotate_next будет установлен в True, и следующий ротор будет сдвигаться.
+                    rotate_next = current_positions[i] == rotors[i][1]
+                else:
+                    break
+
+            processed = char
+            # Проходим по всем роторам (от первого к последнему).
+            for i in range(len(rotors)):
+                wiring = rotors[i][0]  # Проводка ротора
+                pos = current_positions[i]  # Его позиция
+                # Определяем, на сколько ротор сдвинут относительно алфавита.
+                offset = string.ascii_uppercase.index(pos)
+                # Проход символа через ротор
+                processed = wiring[(string.ascii_uppercase.index(processed) + offset) % 26]
+
+            # Проход через рефлектор
+            processed = reflector[string.ascii_uppercase.index(processed)]
+
+            # Обратный проход через роторы
+            for i in reversed(range(len(rotors))):
+                wiring = rotors[i][0]  # Проводка ротора
+                pos = current_positions[i]  # Его позиция
+                # Определяем, на сколько ротор сдвинут относительно алфавита.
+                offset = string.ascii_uppercase.index(pos)
+                # Проход символа через ротор
+                processed = string.ascii_uppercase[(wiring.index(processed) - offset) % 26]
+
+            # Восстанавливаем регистр
+            # Если is_upper == True, то тогда буква остается в верхнем регистре, если false, то тогда переводится в нижний регистр
+            result.append(processed if is_upper else processed.lower())
+
+        return ''.join(result)
 
 
 # Вспомогательные функции
@@ -428,11 +489,11 @@ def send_transaction():
         if raw_tx.get('error'):
             return jsonify(success=False, error=raw_tx['error'])
 
-        # Подписываем транзакцию ТОЛЬКО ключом отправителя
+        # Подписываем транзакцию ключом отправителя
         signed_tx = NodeManager.send_rpc_command(
             session['selected_node'],
             'signrawtransactionwithkey',
-            [raw_tx['result'], [from_priv]]  # Только ключ отправителя
+            [raw_tx['result'], [from_priv]]
         )
 
         if not signed_tx.get('result', {}).get('complete'):
